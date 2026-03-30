@@ -2,7 +2,7 @@
 A travel planner website connect with your Google Sheet, where you can record your schedule, accounts, flights, hotel. 
 
 <p align="center">
-  <img src="image.png" alt="demo" width="50%">
+  <img src="/image.png" alt="demo" width="50%">
 </p>
 
 
