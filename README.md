@@ -1,4 +1,4 @@
-# lets-fun-travel
+# [lets-fun-travel](https://essential35.github.io/lets-fun-travel/)
 A travel planner website connect with your Google Sheet, where you can record your schedule, accounts, flights, hotel. 
 
 <img src="./static/image.png" alt="lets-fun-travel" width="50%"/>
