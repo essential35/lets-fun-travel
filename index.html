@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>旅途筆記 — Travel Journal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@300;400;500;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Mono:wght@300;400&family=Noto+Sans+TC:wght@300;400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- ───── SETUP ───── -->
+  <div id="setup-modal" class="modal-overlay active">
+    <div class="modal-box setup-box">
+      <div class="setup-logo">✦ 旅途筆記</div>
+      <h2 class="setup-title">開始你的旅程記錄</h2>
+      <!-- 分享連結偵測提示 -->
+      <div id="share-auto-hint" class="share-auto-hint" style="display:none">
+        <span>🔗</span>
+        <span id="share-auto-hint-text">偵測到分享連結，資訊已自動填入</span>
+      </div>
+      <div class="form-group">
+        <label>旅行主題 <span class="hint">（地圖搜尋都會聚焦在此範圍）</span></label>
+        <input type="text" id="trip-theme" placeholder="例：日本九州、義大利托斯卡尼" />
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>出發日期</label><input type="date" id="trip-start" /></div>
+        <div class="form-group"><label>返回日期</label><input type="date" id="trip-end" /></div>
+      </div>
+      <div class="form-group">
+        <label>Google Sheet 連結 <span class="hint">（用於識別行程，不同連結→不同行程）</span></label>
+        <input type="text" id="data-source" placeholder="https://docs.google.com/spreadsheets/d/..." />
+      </div>
+      <div class="form-group">
+        <label>Apps Script Web App URL <span class="hint">（選填，用於實際寫回 Google Sheet）</span></label>
+        <input type="text" id="gas-url" placeholder="https://script.google.com/macros/s/.../exec" />
+      </div>
+      <div class="form-group">
+        <label>邀請碼 <span class="hint">（設定於 Sheet「基本資訊」B3，不填則無驗證保護）</span></label>
+        <input type="text" id="invite-code-input" placeholder="輸入邀請碼…" autocomplete="off"
+          style="font-family:'DM Mono',monospace;letter-spacing:.08em" />
+        <div id="invite-code-status"
+          style="display:none;margin-top:5px;font-size:11px;padding:5px 8px;border-radius:5px"></div>
+        <div class="form-group" style="margin-bottom:4px">
+          <div class="gas-hint-box" id="gas-hint-toggle" onclick="toggleGasHelp()">
+            ℹ 如何設定 Apps Script？點此展開（含白名單驗證 + 多工作表程式碼）
+          </div>
+          <div class="gas-help" id="gas-help" style="display:none">
+            <p style="margin-bottom:8px;font-weight:500">同步後會在 Sheet 中建立工作表：「基本資訊」「行程」「航班」「住宿」「費用」「備忘錄」「操作紀錄」</p>
+            <p style="margin-bottom:6px;color:var(--accent);font-weight:600">⚠ 邀請碼設定：在「基本資訊」工作表的 <strong>B1
+                儲存格</strong>填入邀請碼，多組用逗號分隔，例如 <code>abc123,xyz789</code></p>
+            <ol>
+              <li>前往 <a href="https://script.google.com" target="_blank">script.google.com</a>，新增專案</li>
+              <li>貼入以下程式碼：
+                <pre class="gas-code">// 從「基本資訊」工作表 B3 讀取邀請碼（逗號分隔多組）
+function getInviteCodes(ss) {
+  var sh = ss.getSheetByName('基本資訊');
+  if (!sh) return [];
+  var val = sh.getRange(3, 2).getValue();
+  return String(val).split(',').map(function(c){ return c.trim(); }).filter(Boolean);
+}
+
+function doGet(e) {
+  // 邀請碼驗證端點
+  if (e.parameter.action === 'auth') {
+    try {
+      var ss = SpreadsheetApp.openById(e.parameter.id);
+      var codes = getInviteCodes(ss);
+      var ok = codes.length === 0 || codes.indexOf(e.parameter.code) >= 0;
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: ok })
+      ).setMimeType(ContentService.MimeType.JSON);
+    } catch(err) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ ok: false, error: err.message })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  // 讀取資料（需驗證邀請碼）
+  try {
+    var ss = SpreadsheetApp.openById(e.parameter.id);
+    var codes = getInviteCodes(ss);
+    if (codes.length > 0 && codes.indexOf(e.parameter.code) < 0) {
+      return ContentService.createTextOutput(
+        JSON.stringify({ error: 'unauthorized' })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+    var result = {};
+    var names = ['基本資訊','行程','航班','住宿','費用','備忘錄','操作紀錄'];
+    names.forEach(function(n){
+      var sh = ss.getSheetByName(n);
+      if (sh) result[n] = sh.getRange(1,1).getValue() || '{}';
+    });
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(
+      JSON.stringify({ error: err.message })
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doPost(e) {
+  try {
+    var p = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.openById(p.id);
+    // 驗證邀請碼
+    var codes = getInviteCodes(ss);
+    if (codes.length > 0 && codes.indexOf(p.code) < 0) {
+      return ContentService.createTextOutput('unauthorized');
+    }
+    Object.keys(p.sheets).forEach(function(name){
+      var sh = ss.getSheetByName(name) || ss.insertSheet(name);
+      sh.getRange(1,1).setValue(p.sheets[name]);
+      sh.getRange(1,2).setValue('↑ JSON備份(勿編輯)');
+      if (p.tables && p.tables[name]) {
+        var t = p.tables[name];
+        if (sh.getLastRow() >= 3)
+          sh.getRange(3,1,sh.getLastRow()-2,10).clearContent();
+        sh.getRange(3,1,t.length,t[0].length).setValues(t);
+      }
+    });
+    return ContentService.createTextOutput('ok');
+  } catch(err) {
+    return ContentService.createTextOutput('error: ' + err.message);
+  }
+}</pre>
+              </li>
+              <li>點擊「部署 → 新增部署」，選「網路應用程式」</li>
+              <li>「執行身份」選「我」，「誰可以存取」設為「所有人」，複製 Web App URL</li>
+              <li>在 Google Sheet「基本資訊」工作表的 <strong>B3 儲存格</strong>填入邀請碼（多組逗號分隔）</li>
+            </ol>
+            <div class="info-box" style="margin-top:8px">💡 邀請碼可隨時在 Sheet B3 修改，立即生效。不填邀請碼則所有人皆可同步（無保護模式）。</div>
+          </div>
+        </div>
+        <button class="btn-primary" onclick="initTrip()">開始記錄旅程 →</button>
+        <button class="btn-ghost" onclick="initTrip(true)">使用範例資料體驗（日本九州）</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───── APP SHELL ───── -->
+  <div id="app" class="app-shell hidden">
+
+    <!-- 手機版頂部 Header -->
+    <header class="mobile-header">
+      <div class="mobile-header-logo">✦</div>
+      <div class="mobile-header-trip">
+        <div class="trip-theme-label" id="mobile-theme">旅途筆記</div>
+        <div class="trip-dates-label" id="mobile-dates">-</div>
+      </div>
+      <button class="btn-ghost-sm" style="flex-shrink:0;border-color:rgba(255,255,255,.2);color:rgba(248,244,239,.6)"
+        onclick="document.getElementById('setup-modal').classList.add('active')">⚙</button>
+    </header>
+
+    <aside class="sidebar" id="main-sidebar">
+      <div class="sidebar-header">
+        <div class="logo">✦</div>
+        <div class="trip-info">
+          <div class="trip-theme-label" id="sidebar-theme">-</div>
+          <div class="trip-dates-label" id="sidebar-dates">-</div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-panel="itinerary" onclick="switchPanel(this);closeSidebar()"><span
+            class="nav-icon">◈</span> 行程列表</button>
+        <button class="nav-item" data-panel="flights" onclick="switchPanel(this);closeSidebar()"><span
+            class="nav-icon">◎</span> 航班資訊</button>
+        <button class="nav-item" data-panel="accommodation" onclick="switchPanel(this);closeSidebar()"><span
+            class="nav-icon">◻</span> 住宿資訊</button>
+        <button class="nav-item" data-panel="expenses" onclick="switchPanel(this);closeSidebar()"><span
+            class="nav-icon">◇</span> 費用紀錄</button>
+        <button class="nav-item" data-panel="memo" onclick="switchPanel(this);closeSidebar()"><span
+            class="nav-icon">✎</span> 備忘錄</button>
+        <button class="nav-item" data-panel="export" onclick="switchPanel(this);closeSidebar()"><span
+            class="nav-icon">↗</span> 匯出備份</button>
+      </nav>
+      <div class="date-selector">
+        <div class="date-selector-title">旅程日期</div>
+        <div class="date-list" id="date-list"></div>
+      </div>
+      <div class="sidebar-footer">
+        <button class="btn-ghost-sm" onclick="document.getElementById('setup-modal').classList.add('active')">⚙
+          設定</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- ── 左側內容區（面板 + 日期列） ── -->
+      <div class="panels-area">
+
+        <!-- 手機版日期下拉選單 -->
+        <div class="date-strip">
+          <div class="date-dropdown-wrap">
+            <select id="date-dropdown-mobile" class="date-dropdown" onchange="selectDate(this.value)"></select>
+            <span class="date-dropdown-arrow">▾</span>
+          </div>
+        </div>
+
+        <!-- 同步狀態列 -->
+        <div id="sync-bar" class="sync-bar" style="display:none">
+          <span class="sync-sheet-icon">📊</span>
+          <span class="sync-sheet-label">Sheet: <code id="sync-sheet-id">-</code></span>
+          <span id="sync-status" class="sync-status-text">等待同步…</span>
+          <span id="collab-badge" class="collab-badge" style="display:none">👥 1 人協作中</span>
+          <button class="sync-btn" onclick="pullFromSheet()" title="從 Sheet 拉取">↓ 更新</button>
+          <button class="sync-btn" onclick="manualSync()" title="同步到 Sheet">↑ 同步</button>
+          <button class="sync-btn sync-share-btn" onclick="generateShareUrl()">🔗 分享</button>
+        </div>
+
+
+
+
+        <!-- ITINERARY -->
+        <section class="panel active" id="panel-itinerary">
+          <div class="panel-header">
+            <div>
+              <h1 class="panel-title" id="itinerary-date-title">行程列表</h1>
+              <div class="panel-subtitle" id="itinerary-day-label"></div>
+            </div>
+            <div class="panel-actions">
+              <button class="btn-sm btn-outline" id="toggle-all-days-btn" onclick="toggleAllDays()" title="切換全覽所有天行程">▦
+                全覽</button>
+              <button class="btn-sm" onclick="openAddSpotModal()">＋ 景點／餐廳</button>
+              <button class="btn-sm btn-outline" onclick="openGmapListModal()">📍 匯入清單</button>
+            </div>
+          </div>
+          <div class="itinerary-list" id="itinerary-list">
+            <div class="empty-state" id="itinerary-empty">
+              <div class="empty-icon">◈</div>
+              <p>今日尚無行程<br><span>點擊右上角新增景點或餐廳</span></p>
+            </div>
+          </div>
+
+
+          <!-- ── INLINE MAP：行程列表下方（桌面 + 手機都顯示） ── -->
+          <div class="inline-map-block" id="inline-map-itinerary">
+            <div class="inline-map-header">
+              <span id="map-location-label" class="map-label">點擊行程項目以查看位置</span>
+              <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+                <select id="transport-mode" class="transport-select">
+                  <option value="walking">🚶 步行</option>
+                  <option value="transit">🚌 公共交通</option>
+                  <option value="driving">🚗 乘車</option>
+                </select>
+                <button class="map-open-btn" onclick="openCurrentInGoogleMaps()" title="在 Google Maps 開啟">↗</button>
+              </div>
+            </div>
+            <div class="inline-map-frame">
+              <div class="map-hint" id="map-hint">
+                <div class="map-hint-icon">◈</div>
+                <p>點擊行程項目<br>地圖即連動顯示位置</p>
+                <div class="map-hint-sub">無需 API Key，使用 Google Maps 嵌入</div>
+              </div>
+              <iframe id="map-iframe" src="" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+                style="display:none;width:100%;height:100%;border:none">
+              </iframe>
+            </div>
+            <div class="travel-time-bar" id="travel-time-bar" style="display:none">
+              <span id="travel-time-icon"></span>
+              <span id="travel-time-text"></span>
+              <a id="travel-gmaps-link" href="#" target="_blank" class="travel-link">Google Maps 路線 →</a>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- FLIGHTS -->
+        <section class="panel" id="panel-flights">
+          <div class="panel-header">
+            <h1 class="panel-title">航班資訊</h1>
+            <button class="btn-sm" onclick="openAddFlightModal()">＋ 新增航班</button>
+          </div>
+          <div class="flights-list" id="flights-list">
+            <div class="empty-state">
+              <div class="empty-icon">◎</div>
+              <p>尚未新增航班</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ACCOMMODATION -->
+        <section class="panel" id="panel-accommodation">
+          <div class="panel-header">
+            <h1 class="panel-title">住宿資訊</h1>
+            <button class="btn-sm" onclick="openAddAccomModal()">＋ 新增住宿</button>
+          </div>
+          <div class="accom-list" id="accom-list">
+            <div class="empty-state">
+              <div class="empty-icon">◻</div>
+              <p>尚未新增住宿</p>
+            </div>
+          </div>
+
+          <!-- ── INLINE MAP：住宿頁 ── -->
+          <div class="inline-map-block" id="inline-map-accom">
+            <div class="inline-map-header">
+              <span id="accom-map-label" class="map-label">點擊「在地圖查看」以顯示住宿位置</span>
+              <button class="map-open-btn" onclick="openCurrentAccomInGoogleMaps()" title="在 Google Maps 開啟">↗</button>
+            </div>
+            <div class="inline-map-frame">
+              <div class="map-hint" id="accom-map-hint">
+                <div class="map-hint-icon">◻</div>
+                <p>點擊住宿卡片的<br>「在地圖查看」</p>
+              </div>
+              <iframe id="accom-map-iframe" src="" allowfullscreen loading="lazy"
+                referrerpolicy="no-referrer-when-downgrade" style="display:none;width:100%;height:100%;border:none">
+              </iframe>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- EXPENSES -->
+        <section class="panel" id="panel-expenses">
+          <div class="panel-header">
+            <h1 class="panel-title">費用紀錄</h1>
+            <button class="btn-sm" onclick="openAddExpenseModal()">＋ 新增費用</button>
+          </div>
+          <div class="expense-summary">
+            <div class="summary-card">
+              <div class="summary-value" id="total-amount">0</div>
+              <div class="summary-label">總支出</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value" id="total-count">0</div>
+              <div class="summary-label">筆數</div>
+            </div>
+          </div>
+          <div class="expense-list" id="expense-list">
+            <div class="empty-state">
+              <div class="empty-icon">◇</div>
+              <p>尚未記錄費用</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- MEMO -->
+        <section class="panel" id="panel-memo">
+          <div class="panel-header">
+            <h1 class="panel-title">備忘錄</h1>
+            <button class="btn-sm" onclick="openAddMemoModal()">＋ 新增備忘</button>
+          </div>
+          <div class="memo-list" id="memo-list">
+            <div class="empty-state" id="memo-empty">
+              <div class="empty-icon">✎</div>
+              <p>尚無備忘錄<br><span>點擊右上角新增主題與內容</span></p>
+            </div>
+          </div>
+        </section>
+
+        <!-- EXPORT -->
+        <section class="panel" id="panel-export">
+          <div class="panel-header">
+            <h1 class="panel-title">匯出 &amp; 備份</h1>
+          </div>
+          <div class="export-section-title">📄 匯出行程內容</div>
+          <div class="export-options">
+            <div class="export-card" onclick="exportToMarkdown()">
+              <div class="export-icon">MD</div>
+              <div class="export-label">行程紀錄 Markdown</div>
+              <div class="export-desc">含所有日期行程、航班、住宿、費用，適合 Obsidian / Notion 筆記</div>
+            </div>
+            <div class="export-card" onclick="exportToPDF()">
+              <div class="export-icon">PDF</div>
+              <div class="export-label">行程表 / 列印</div>
+              <div class="export-desc">生成節洗版行程表（含費用）在新視窗開啟，可列印或存 PDF</div>
+            </div>
+          </div>
+          <div class="export-section-title" style="margin-top:20px">🗂 備份與還原</div>
+          <div class="export-options" style="grid-template-columns:1fr 1fr">
+            <div class="export-card" onclick="exportToJSON()">
+              <div class="export-icon">JSON</div>
+              <div class="export-label">匯出備份檔</div>
+              <div class="export-desc">匯出所有行程資料，下次可還原全部內容</div>
+            </div>
+            <div class="export-card export-import-card">
+              <div class="export-icon">匯入</div>
+              <div class="export-label">還原備份檔</div>
+              <div class="export-desc">選擇備份的 .json 檔案還原資料</div>
+              <input type="file" id="import-file" accept=".json" onchange="importJSON(event)" style="display:none" />
+              <button class="import-trigger-btn" onclick="document.getElementById('import-file').click()">選擇檔案…</button>
+            </div>
+          </div>
+          <div class="info-box" style="margin-top:16px">
+            💡 如果已設定 Google Sheet 同步，資料在每次變動後會自動寫回 Sheet（分6個工作表整理）。這裡的匯出是額外的離線備份。
+          </div>
+        </section>
+
+      </div><!-- /.panels-area -->
+
+
+
+    </main><!-- /.main-content -->
+
+  </div><!-- /.app-shell -->
+
+  <!-- ═══ MODALS ═══ -->
+
+  <!-- Spot（含 Modal 內地圖預覽）-->
+  <div class="modal-overlay" id="modal-spot">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-header">
+        <h3>新增景點／餐廳</h3><button class="modal-close" onclick="closeModal('modal-spot')">✕</button>
+      </div>
+      <div class="spot-modal-layout">
+        <!-- 左側：搜尋與表單 -->
+        <div class="spot-form-col">
+          <div class="tab-row">
+            <button class="tab-btn active" id="tab-search" onclick="switchSpotTab('search')">搜尋名稱</button>
+            <button class="tab-btn" id="tab-link" onclick="switchSpotTab('link')">貼上 Google Maps 連結</button>
+          </div>
+          <div id="spot-tab-search">
+            <div class="form-group">
+              <label>搜尋景點或餐廳</label>
+              <div class="search-row">
+                <input type="text" id="spot-search-input" placeholder="輸入名稱後按 Enter 或搜尋…"
+                  onkeydown="if(event.key==='Enter')doSpotSearch()" />
+                <button class="btn-sm" onclick="doSpotSearch()">搜尋</button>
+              </div>
+              <div class="search-hint">搜尋範圍限定在「<span id="search-theme-hint">-</span>」</div>
+            </div>
+            <div id="spot-search-results" class="search-results"></div>
+          </div>
+          <div id="spot-tab-link" style="display:none">
+            <div class="form-group">
+              <label>Google Maps 地點連結</label>
+              <input type="text" id="gmap-link-input" placeholder="https://maps.app.goo.gl/..." />
+              <button class="btn-sm" style="margin-top:8px" onclick="parseGmapLink()">解析連結</button>
+            </div>
+            <div class="info-box">💡 Google Maps → 找到地點 → 分享 → 複製連結</div>
+          </div>
+          <div id="spot-preview" style="display:none">
+            <div class="spot-preview-card">
+              <input type="text" class="spot-preview-name" id="preview-name" placeholder="地點名稱（可修改）"
+                oninput="if(S.pendingSpot)S.pendingSpot.name=this.value"
+                style="background:transparent;border:none;border-bottom:1px solid rgba(0,0,0,.15);width:100%;font:inherit;font-weight:600;padding:2px 0;outline:none;color:inherit" />
+              <div class="spot-preview-addr" id="preview-addr"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>日期</label><input type="date" id="spot-date" /></div>
+              <div class="form-group"><label>到達時間</label><input type="time" id="spot-time" /></div>
+              <div class="form-group"><label>停留（分鐘）</label><input type="number" id="spot-duration" value="60" min="0" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>類型</label>
+                <select id="spot-type">
+                  <option value="attraction">景點</option>
+                  <option value="restaurant">餐廳</option>
+                  <option value="shopping">購物</option>
+                  <option value="other">其他</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group"><label>備註</label><textarea id="spot-note" rows="2"
+                placeholder="預訂資訊、注意事項…"></textarea></div>
+            <div class="form-group">
+              <label>交通資訊 <span class="hint">（選填）</span></label>
+              <input type="text" id="spot-transport" placeholder="例：搭 JR 至博多站、步行 5 分鐘" />
+            </div>
+            <button class="btn-primary" onclick="addSpotToItinerary()">加入行程 ＋</button>
+          </div>
+        </div>
+        <!-- 右側：地圖預覽 -->
+        <div class="spot-map-col">
+          <div class="modal-map-header" id="modal-map-bar" style="display:none">
+            <span id="modal-map-label" class="modal-map-label">地圖預覽</span>
+            <button class="map-open-btn" onclick="openModalMapInGoogleMaps()" title="在 Google Maps 開啟">↗</button>
+          </div>
+          <div class="modal-map-container">
+            <div class="modal-map-hint" id="modal-map-hint">
+              <div class="map-hint-icon">🔍</div>
+              <p>搜尋後地圖<br>將在此顯示</p>
+            </div>
+            <iframe id="modal-map-iframe" src="" allowfullscreen loading="lazy"
+              referrerpolicy="no-referrer-when-downgrade" style="display:none;width:100%;height:100%;border:none">
+            </iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- List Import（文字清單） -->
+  <div class="modal-overlay" id="modal-gmaplist">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>批次匯入地點</h3><button class="modal-close" onclick="closeModal('modal-gmaplist')">✕</button>
+      </div>
+      <div class="info-box">
+        📝 每行一個地點名稱，一次加入多個地點到指定日期，加入後可在行程列表點「地圖」逐一確認位置。<br>
+        <b>⚠ 說明：</b>Google Maps 分享清單連結因瀏覽器安全限制無法直接匯入，請手動輸入地點名稱。
+      </div>
+      <div class="form-group">
+        <label>地點清單 <span class="hint">（每行一個地點名稱）</span></label>
+        <textarea id="gmaplist-text" rows="8" placeholder="博多拉麵一蘭
+太宰府天滿宮
+由布院金鱗湖
+別府地獄溫泉"></textarea>
+      </div>
+      <div class="form-group"><label>全部加入哪一天？</label><input type="date" id="gmaplist-date" /></div>
+      <button class="btn-primary" onclick="importList()">匯入地點 +</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-flight">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="flight-modal-title">新增航班</h3><button class="modal-close" onclick="closeModal('modal-flight')">✕</button>
+      </div>
+      <div class="form-group"><label>航班號碼</label><input type="text" id="flight-number" placeholder="JL 0921" /></div>
+      <div class="form-row">
+        <div class="form-group"><label>出發機場</label><input type="text" id="flight-from" placeholder="TPE" /></div>
+        <div class="form-group"><label>抵達機場</label><input type="text" id="flight-to" placeholder="FUK" /></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>起飛時間</label><input type="datetime-local" id="flight-depart" /></div>
+        <div class="form-group"><label>抵達時間</label><input type="datetime-local" id="flight-arrive" /></div>
+      </div>
+      <div class="form-group"><label>備註</label><input type="text" id="flight-note" placeholder="座位號、航廈…" /></div>
+      <input type="hidden" id="flight-edit-id" value="" />
+      <button class="btn-primary" onclick="saveFlightModal()">儲存航班</button>
+    </div>
+  </div>
+
+  <!-- Accommodation -->
+  <div class="modal-overlay" id="modal-accom">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="accom-modal-title">新增住宿</h3><button class="modal-close" onclick="closeModal('modal-accom')">✕</button>
+      </div>
+      <div class="form-group"><label>住宿名稱</label><input type="text" id="accom-name-input" placeholder="飯店、旅館名稱" />
+      </div>
+      <div class="form-group"><label>地址（選填）</label><input type="text" id="accom-addr-input" placeholder="地址或區域" />
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Check-in</label><input type="date" id="accom-checkin" /></div>
+        <div class="form-group"><label>Check-out</label><input type="date" id="accom-checkout" /></div>
+      </div>
+      <div class="form-group"><label>備註</label><input type="text" id="accom-note" placeholder="雙人房、含早餐…" /></div>
+      <div class="form-group">
+        <label>Google Maps 連結 <span class="hint">（貼上後可點擊地圖查看位置）</span></label>
+        <input type="text" id="accom-gmaplink" placeholder="https://maps.app.goo.gl/..." />
+      </div>
+      <input type="hidden" id="accom-edit-id" value="" />
+      <button class="btn-primary" onclick="saveAccomModal()">儲存住宿</button>
+    </div>
+  </div>
+
+  <!-- Expense -->
+  <div class="modal-overlay" id="modal-expense">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="expense-modal-title">新增費用</h3><button class="modal-close"
+          onclick="closeModal('modal-expense')">✕</button>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>日期</label><input type="date" id="exp-date" /></div>
+        <div class="form-group">
+          <label>消費主題</label>
+          <select id="exp-category">
+            <option value="food">🍽 餐飲</option>
+            <option value="transport">🚌 交通</option>
+            <option value="attraction">🎫 景點</option>
+            <option value="accommodation">🏨 住宿</option>
+            <option value="shopping">🛍 購物</option>
+            <option value="other">💰 其他</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>消費說明</label><input type="text" id="exp-desc" placeholder="拉麵午餐、地鐵票…" /></div>
+      <div class="form-row">
+        <div class="form-group"><label>總金額</label><input type="number" id="exp-amount" placeholder="0" min="0" />
+        </div>
+        <div class="form-group">
+          <label>貨幣</label>
+          <select id="exp-currency">
+            <option value="JPY">¥ JPY</option>
+            <option value="TWD">NT$ TWD</option>
+            <option value="USD">$ USD</option>
+            <option value="EUR">€ EUR</option>
+            <option value="KRW">₩ KRW</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>付款人</label><input type="text" id="exp-payer" placeholder="姓名" /></div>
+      <div class="splits-header">
+        <label>分帳明細</label>
+        <button class="btn-ghost-sm" onclick="addSplitRow()" style="color:var(--ink-2);border-color:var(--border)">＋
+          新增</button>
+      </div>
+      <div id="exp-splits"></div>
+      <input type="hidden" id="exp-linked-item" value="" />
+      <input type="hidden" id="expense-edit-id" value="" />
+      <button class="btn-primary" style="margin-top:16px" onclick="saveExpenseModal()">儲存費用</button>
+    </div>
+  </div>
+
+  <!-- Edit -->
+  <div class="modal-overlay" id="modal-edit">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>編輯行程</h3><button class="modal-close" onclick="closeModal('modal-edit')">✕</button>
+      </div>
+      <div class="form-group"><label>地點名稱</label><input type="text" id="edit-name" /></div>
+      <div class="form-group"><label>地址</label><input type="text" id="edit-addr" /></div>
+      <div class="form-group"><label>Google Maps 連結</label><input type="text" id="edit-gmaplink"
+          placeholder="https://maps.app.goo.gl/..." /></div>
+      <div class="form-row">
+        <div class="form-group"><label>日期</label><input type="date" id="edit-date" /></div>
+        <div class="form-group"><label>到達時間</label><input type="time" id="edit-time" /></div>
+        <div class="form-group"><label>停留（分）</label><input type="number" id="edit-duration" min="0" /></div>
+      </div>
+      <div class="form-group"><label>備註</label><textarea id="edit-note" rows="2"></textarea></div>
+      <div class="form-group">
+        <label>交通資訊 <span class="hint">（如：搭地鐵至XX站、步行10分鐘）</span></label>
+        <input type="text" id="edit-transport" placeholder="例：搭 JR 至博多站、轉乘巴士、步行 5 分鐘" />
+      </div>
+      <input type="hidden" id="edit-item-id" />
+      <button class="btn-primary" onclick="saveEdit()">儲存</button>
+    </div>
+  </div>
+
+  <!-- Memo Modal -->
+  <div class="modal-overlay" id="modal-memo">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="memo-modal-title">新增備忘錄</h3><button class="modal-close" onclick="closeModal('modal-memo')">✕</button>
+      </div>
+      <div class="form-group">
+        <label>主題</label>
+        <input type="text" id="memo-title-input" placeholder="例：行前注意事項、購物清單…" />
+      </div>
+      <div class="form-group">
+        <label>內容</label>
+        <textarea id="memo-content-input" rows="6" placeholder="在此輸入備忘內容…"></textarea>
+      </div>
+      <input type="hidden" id="memo-edit-id" value="" />
+      <button class="btn-primary" onclick="saveMemoModal()">儲存備忘錄</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- 手機底部導覽列 -->
+  <nav class="mobile-bottom-nav" id="mobile-bottom-nav">
+    <button class="mobile-nav-btn active" data-panel="itinerary" onclick="switchPanelMobile('itinerary')">
+      <span class="mnb-icon">◈</span>
+      <span>行程</span>
+    </button>
+    <button class="mobile-nav-btn" data-panel="flights" onclick="switchPanelMobile('flights')">
+      <span class="mnb-icon">◎</span>
+      <span>航班</span>
+    </button>
+    <button class="mobile-nav-btn" data-panel="accommodation" onclick="switchPanelMobile('accommodation')">
+      <span class="mnb-icon">◻</span>
+      <span>住宿</span>
+    </button>
+    <button class="mobile-nav-btn" data-panel="expenses" onclick="switchPanelMobile('expenses')">
+      <span class="mnb-icon">◇</span>
+      <span>費用</span>
+    </button>
+    <button class="mobile-nav-btn" data-panel="memo" onclick="switchPanelMobile('memo')">
+      <span class="mnb-icon">✎</span>
+      <span>備忘錄</span>
+    </button>
+    <button class="mobile-nav-btn" data-panel="export" onclick="switchPanelMobile('export')">
+      <span class="mnb-icon">↗</span>
+      <span>匯出</span>
+    </button>
+  </nav>
+
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
+  <script src="app.js"></script>
+  <script>
+    function toggleGasHelp() {
+      const help = document.getElementById('gas-help');
+      const toggle = document.getElementById('gas-hint-toggle');
+      if (help.style.display === 'none') {
+        help.style.display = 'block';
+        toggle.textContent = '▲ 收起說明';
+      } else {
+        help.style.display = 'none';
+        toggle.textContent = 'ℹ 如何設定 Apps Script？點此展開（含白名單驗證 + 多工作表程式碼）';
+      }
+    }
+    function toggleOauthHelp() {
+      const help = document.getElementById('oauth-help');
+      const toggle = document.getE
+    }
+  </script>
+</body>
+
+</html>
