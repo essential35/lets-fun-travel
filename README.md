@@ -1,7 +1,7 @@
 # lets-fun-travel
 A travel planner website connect with your Google Sheet, where you can record your schedule, accounts, flights, hotel. 
 
-![demo](./static/image.png)
+<img src="./static/image.png" alt="lets-fun-travel" width="50%"/>
 
 ## How it works
 - Connect with Google Sheet as backend dataset: The frontend web will read and write data to the Google Sheet through the Apps Script, including itinerary, flight, hotel, expense, memo, and log.
